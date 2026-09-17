@@ -7,7 +7,7 @@ import re
 from google import genai
 from google.genai import types
 
-client = genai.Client("GEMINI_API")
+client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 
 weights = {
     "decision_making": 0.25,
