@@ -59,13 +59,18 @@ if "final_report" not in st.session_state:
 def ask_ai(prompt, schema=None, retries=3):
     for attempt in range(retries):
         try:
+            config = types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.3
+            )
+
+            if schema:
+                config.response_schema = schema
+
             response = client.models.generate_content(
                 model="gemini-3.6-flash",
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.3
-                )
+                config=config
             )
 
             text = response.text
@@ -75,11 +80,13 @@ def ask_ai(prompt, schema=None, retries=3):
                 print(text)
                 return text
 
-            st.warning(f"AI trả về rỗng - lần {attempt + 1}")
+            print(f"AI trả về rỗng - lần {attempt + 1}")
 
         except Exception as e:
-            st.error(f"AI error - lần {attempt + 1}: {e}")
             print(f"AI error - lần {attempt + 1}: {e}")
+
+            if attempt == retries - 1:
+                st.error(f"AI error: {e}")
 
     st.error("AI không phản hồi sau nhiều lần thử.")
     return None
@@ -691,7 +698,6 @@ st.text_area("Giải thích", key=f"reasoning_{round_number}")
 if not st.session_state.answered:
     if st.button("ĐÁNH GIÁ QUYẾT ĐỊNH"):
         evaluate()
-        st.rerun()
 
 if st.session_state.result is not None and st.session_state.result_round == state["round"]:
 
