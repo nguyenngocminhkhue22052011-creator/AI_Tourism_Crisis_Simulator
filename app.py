@@ -6,7 +6,7 @@ import random
 import re
 from google import genai
 
-client = genai.Client()
+client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 
 weights = {
     "decision_making": 0.25,
