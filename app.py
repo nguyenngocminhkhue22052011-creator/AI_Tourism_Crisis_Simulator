@@ -56,15 +56,14 @@ if "final_report" not in st.session_state:
 
 # 3. AI helper functions
 
-def ask_ai(prompt, schema, retries=3):
+def ask_ai(prompt, schema=None, retries=3):
     for attempt in range(retries):
         try:
             response = client.models.generate_content(
-                model="gemini-3.7-flash",
+                model="gemini-3.6-flash",
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
-                    response_schema=schema,
                     temperature=0.3
                 )
             )
@@ -76,13 +75,13 @@ def ask_ai(prompt, schema, retries=3):
                 print(text)
                 return text
 
-            print(f"AI trả về rỗng - lần {attempt + 1}")
+            st.warning(f"AI trả về rỗng - lần {attempt + 1}")
 
         except Exception as e:
             st.error(f"AI error - lần {attempt + 1}: {e}")
             print(f"AI error - lần {attempt + 1}: {e}")
 
-    print("AI không phản hồi sau nhiều lần thử.")
+    st.error("AI không phản hồi sau nhiều lần thử.")
     return None
 
 
@@ -165,7 +164,26 @@ Hãy xác định:
 satisfaction_change phải từ -15 đến 15.
 reputation_change phải từ -15 đến 15.
 
-Hãy trả lời ngắn gọn nhưng cụ thể.
+CHỈ trả về JSON hợp lệ.
+Không thêm Markdown.
+Không thêm ```json.
+Không giải thích bên ngoài JSON.
+
+Cấu trúc JSON bắt buộc:
+
+{{
+    "decision_making": 0,
+    "risk_management": 0,
+    "customer_service": 0,
+    "financial_management": 0,
+    "reputation_management": 0,
+    "feasibility": 0,
+    "strengths": "",
+    "weaknesses": "",
+    "feedback": "",
+    "satisfaction_change": 0,
+    "reputation_change": 0
+}}
 """
 
     evaluation_schema = {
@@ -367,6 +385,24 @@ Hãy tìm những xu hướng lặp lại trong cách người chơi ra quyết 
 Nếu người chơi mới chỉ hoàn thành một vài vòng, hãy chỉ phân tích dựa trên dữ liệu hiện có.
 
 Hãy viết ngắn gọn nhưng cụ thể.
+
+CHỈ trả về JSON hợp lệ.
+Không thêm Markdown.
+Không thêm ```json.
+Không giải thích bên ngoài JSON.
+
+Cấu trúc JSON bắt buộc:
+
+{{
+    "satisfaction_level": "",
+    "satisfaction_analysis": "",
+    "reputation_level": "",
+    "reputation_analysis": "",
+    "strengths": "",
+    "weaknesses": "",
+    "lessons": [],
+    "management_advice": ""
+}}
 """
 
     report_schema = {
@@ -436,7 +472,7 @@ Hãy viết ngắn gọn nhưng cụ thể.
         if data and all(key in data for key in required_keys):
             break
 
-        print(f"Báo cáo cuối không hợp lệ. Đang thử lại {attempt + 1}/3.")
+        print(f"Báo cáo cuối không hợp lệ. Đang thử lại lần {attempt + 1}/3.")
         data = None
 
     if not data:
