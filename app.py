@@ -58,18 +58,28 @@ def format_money(amount):
 
 # 3. AI helper functions
 
-def ask_ai(prompt):
-    try:
-        response = client.models.generate_content(
-            model="gemini-3.6-flash",
-            contents=prompt
-        )
-        print("AI RESPONSE:")
-        print(response.text)
-        return response.text
-    except Exception as e:
-        print("AI error:", e)
-        return None
+def ask_ai(prompt, retries=3):
+    for attempt in range(retries):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3.6-flash",
+                contents=prompt
+            )
+
+            text = response.text
+
+            if text and text.strip():
+                print(f"AI RESPONSE - lần {attempt + 1}:")
+                print(text)
+                return text
+
+            print(f"AI trả về rỗng - lần {attempt + 1}")
+
+        except Exception as e:
+            print(f"AI error - lần {attempt + 1}:", e)
+
+    print("AI không phản hồi sau nhiều lần thử.")
+    return None
 
 def get_json(text):
     if not text:
@@ -143,17 +153,13 @@ Cần trả về:
 - strengths: điểm mạnh cụ thể
 - weaknesses: điểm hạn chế cụ thể
 - feedback: lời khuyên cụ thể
-- budget_change: thay đổi ngân sách
 - satisfaction_change: thay đổi mức hài lòng của khách
 - reputation_change: thay đổi danh tiếng
 
 satisfaction_change phải nằm trong khoảng -15 đến 15.
 reputation_change phải nằm trong khoảng -15 đến 15.
 
-budget_change là số tiền thay đổi trong ngân sách GAME.
-Ngân sách ban đầu của game là 10000.
-Không sử dụng tiền thật hoặc đơn vị tiền thực tế lớn như hàng triệu, tỷ.
-Với một hành động có chi phí lớn, hãy ước tính chi phí trong phạm vi ngân sách của game.
+Hãy trả lời ngắn gọn nhưng cụ thể để tránh phản hồi quá dài.
 
 CHỈ TRẢ VỀ JSON HỢP LỆ.
 KHÔNG viết markdown.
@@ -177,8 +183,20 @@ JSON phải có đúng dạng:
 }}
 """
 
-    result = ask_ai(prompt)
-    data = get_json(result)
+    data = None
+
+    for attempt in range(3):
+        result = ask_ai(prompt, retries=1)
+
+        data = get_json(result)
+
+        if data:
+            break
+
+        print(
+            f"AI trả về JSON không hợp lệ. "
+            f"Đang thử lại lần {attempt + 1}/3."
+        )
 
     if not data:
         print("AI không trả về JSON hợp lệ. Đang dùng dữ liệu mặc định.")
@@ -192,8 +210,7 @@ JSON phải có đúng dạng:
             "feasibility": 6,
             "strengths": "Không thể đọc kết quả đánh giá từ AI.",
             "weaknesses": "AI không trả về dữ liệu đúng định dạng.",
-            "feedback": "Kiểm tra phản hồi của AI trong Terminal.",
-            "budget_change": 0,
+            "feedback": "Hệ thống đã sử dụng kết quả mặc định.",
             "satisfaction_change": 0,
             "reputation_change": 0
         }
@@ -291,6 +308,8 @@ Hãy tìm những xu hướng lặp lại trong cách người chơi ra quyết 
 Nếu người chơi mới chỉ hoàn thành 1 vòng hoặc một vài vòng,
 hãy phân tích dựa trên dữ liệu hiện có và không giả định những vòng chưa chơi.
 
+Hãy viết ngắn gọn nhưng cụ thể.
+
 CHỈ TRẢ VỀ JSON HỢP LỆ.
 
 KHÔNG viết markdown.
@@ -315,12 +334,23 @@ JSON phải có đúng dạng:
 }}
 """
 
-    result = ask_ai(prompt)
+    data = None
 
-    print("FINAL REPORT RESPONSE:")
-    print(result)
+    for attempt in range(3):
+        result = ask_ai(prompt, retries=1)
 
-    data = get_json(result)
+        print("FINAL REPORT RESPONSE:")
+        print(result)
+
+        data = get_json(result)
+
+        if data:
+            break
+
+        print(
+            f"Báo cáo cuối không hợp lệ. "
+            f"Đang thử lại lần {attempt + 1}/3."
+        )
 
     if not data:
         print("AI không trả về báo cáo cuối hợp lệ.")
