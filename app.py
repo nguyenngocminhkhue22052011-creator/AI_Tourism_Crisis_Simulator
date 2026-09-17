@@ -60,7 +60,7 @@ def ask_ai(prompt, schema, retries=3):
     for attempt in range(retries):
         try:
             response = client.models.generate_content(
-                model="gemini-3.6-flash",
+                model="gemini-3.7-flash",
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
@@ -79,6 +79,7 @@ def ask_ai(prompt, schema, retries=3):
             print(f"AI trả về rỗng - lần {attempt + 1}")
 
         except Exception as e:
+            st.error(f"AI error - lần {attempt + 1}: {e}")
             print(f"AI error - lần {attempt + 1}: {e}")
 
     print("AI không phản hồi sau nhiều lần thử.")
