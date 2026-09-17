@@ -9,6 +9,9 @@ from google.genai import types
 
 client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 
+# Tên model Gemini hợp lệ (đã sửa từ "gemini-3.6-flash" - model không tồn tại)
+MODEL_NAME = "gemini-3.5-flash"
+
 weights = {
     "decision_making": 0.25,
     "risk_management": 0.20,
@@ -54,9 +57,15 @@ if "page" not in st.session_state:
 if "final_report" not in st.session_state:
     st.session_state.final_report = None
 
+if "last_ai_error" not in st.session_state:
+    st.session_state.last_ai_error = None
+
+
 # 3. AI helper functions
 
 def ask_ai(prompt, schema=None, retries=3):
+    st.session_state.last_ai_error = None
+
     for attempt in range(retries):
         try:
             config = types.GenerateContentConfig(
@@ -68,7 +77,7 @@ def ask_ai(prompt, schema=None, retries=3):
                 config.response_schema = schema
 
             response = client.models.generate_content(
-                model="gemini-3.6-flash",
+                model=MODEL_NAME,
                 contents=prompt,
                 config=config
             )
@@ -81,14 +90,12 @@ def ask_ai(prompt, schema=None, retries=3):
                 return text
 
             print(f"AI trả về rỗng - lần {attempt + 1}")
+            st.session_state.last_ai_error = "AI trả về nội dung rỗng."
 
         except Exception as e:
             print(f"AI error - lần {attempt + 1}: {e}")
+            st.session_state.last_ai_error = str(e)
 
-            if attempt == retries - 1:
-                st.error(f"AI error: {e}")
-
-    st.error("AI không phản hồi sau nhiều lần thử.")
     return None
 
 
@@ -258,6 +265,19 @@ Cấu trúc JSON bắt buộc:
             "feedback",
             "satisfaction_change",
             "reputation_change"
+        ],
+        "propertyOrdering": [
+            "decision_making",
+            "risk_management",
+            "customer_service",
+            "financial_management",
+            "reputation_management",
+            "feasibility",
+            "strengths",
+            "weaknesses",
+            "feedback",
+            "satisfaction_change",
+            "reputation_change"
         ]
     }
 
@@ -276,6 +296,7 @@ Cấu trúc JSON bắt buộc:
     ]
 
     data = None
+    used_fallback = False
 
     for attempt in range(3):
         result = ask_ai(prompt, evaluation_schema, retries=1)
@@ -288,6 +309,7 @@ Cấu trúc JSON bắt buộc:
         data = None
 
     if not data:
+        used_fallback = True
         print("AI không trả về kết quả hợp lệ. Đang sử dụng dữ liệu mặc định.")
 
         data = {
@@ -329,6 +351,8 @@ Cấu trúc JSON bắt buộc:
 
     data["satisfaction_change"] = max(-15, min(15, data["satisfaction_change"]))
     data["reputation_change"] = max(-15, min(15, data["reputation_change"]))
+
+    data["_used_fallback"] = used_fallback
 
     return data
 
@@ -452,6 +476,16 @@ Cấu trúc JSON bắt buộc:
             "weaknesses",
             "lessons",
             "management_advice"
+        ],
+        "propertyOrdering": [
+            "satisfaction_level",
+            "satisfaction_analysis",
+            "reputation_level",
+            "reputation_analysis",
+            "strengths",
+            "weaknesses",
+            "lessons",
+            "management_advice"
         ]
     }
 
@@ -467,6 +501,7 @@ Cấu trúc JSON bắt buộc:
     ]
 
     data = None
+    used_fallback = False
 
     for attempt in range(3):
         result = ask_ai(prompt, report_schema, retries=1)
@@ -483,7 +518,7 @@ Cấu trúc JSON bắt buộc:
         data = None
 
     if not data:
-
+        used_fallback = True
         print("AI không trả về báo cáo cuối hợp lệ.")
 
         if state["satisfaction"] >= 70:
@@ -500,7 +535,7 @@ Cấu trúc JSON bắt buộc:
         else:
             reputation_level = "Thấp"
 
-        return {
+        data = {
             "satisfaction_level": satisfaction_level,
             "satisfaction_analysis": f"Mức hài lòng hiện tại là {state['satisfaction']:.0f}/100.",
             "reputation_level": reputation_level,
@@ -539,6 +574,8 @@ Cấu trúc JSON bắt buộc:
 
     data["lessons"] = data["lessons"][:3]
 
+    data["_used_fallback"] = used_fallback
+
     return data
 
 
@@ -549,6 +586,15 @@ def show_final_page():
     st.title(f"BÁO CÁO SAU {rounds_played} VÒNG")
 
     report = st.session_state.final_report
+
+    if report.get("_used_fallback"):
+        st.warning(
+            "AI không phản hồi hợp lệ, báo cáo này đang dùng dữ liệu dự phòng "
+            "(không phải phân tích thật từ AI). Kiểm tra log console để biết lỗi cụ thể."
+        )
+        if st.session_state.last_ai_error:
+            with st.expander("Chi tiết lỗi AI"):
+                st.code(st.session_state.last_ai_error)
 
     st.subheader("TỔNG QUAN")
 
@@ -619,7 +665,8 @@ def evaluate():
         st.warning("Vui lòng nhập quyết định và lý do.")
         return
 
-    result = evaluate_decision(decision, reasoning)
+    with st.spinner("Đang đánh giá quyết định..."):
+        result = evaluate_decision(decision, reasoning)
 
     state["satisfaction"] += result["satisfaction_change"]
     state["reputation"] += result["reputation_change"]
@@ -705,6 +752,15 @@ if st.session_state.result is not None and st.session_state.result_round == stat
 
     result = st.session_state.result
 
+    if result.get("_used_fallback"):
+        st.warning(
+            "AI không phản hồi hợp lệ, điểm và nhận xét dưới đây là dữ liệu dự phòng "
+            "(không phải đánh giá thật từ AI)."
+        )
+        if st.session_state.last_ai_error:
+            with st.expander("Chi tiết lỗi AI"):
+                st.code(st.session_state.last_ai_error)
+
     st.write(f"### ĐIỂM TỔNG: {result['total']}/100")
     st.write(f"Ra quyết định: {result['decision_making']:.1f}/10")
     st.write(f"Quản lý rủi ro: {result['risk_management']:.1f}/10")
@@ -728,7 +784,8 @@ if st.session_state.result is not None and st.session_state.result_round == stat
     st.divider()
 
     if st.button("XEM BÁO CÁO HIỆN TẠI"):
-        st.session_state.final_report = generate_final_report()
+        with st.spinner("Đang tạo báo cáo..."):
+            st.session_state.final_report = generate_final_report()
         st.session_state.page = "final"
         st.rerun()
 
@@ -746,6 +803,7 @@ if st.session_state.result is not None and st.session_state.result_round == stat
         st.write(f"**Danh tiếng cuối:** {state['reputation']:.0f}/100")
 
         if st.button("XEM BÁO CÁO TỔNG KẾT"):
-            st.session_state.final_report = generate_final_report()
+            with st.spinner("Đang tạo báo cáo..."):
+                st.session_state.final_report = generate_final_report()
             st.session_state.page = "final"
             st.rerun()
