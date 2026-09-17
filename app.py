@@ -5,8 +5,9 @@ import json
 import random
 import re
 from google import genai
+from google.genai import types
 
-client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+client = genai.Client("GEMINI_API")
 
 weights = {
     "decision_making": 0.25,
@@ -53,17 +54,19 @@ if "page" not in st.session_state:
 if "final_report" not in st.session_state:
     st.session_state.final_report = None
 
-def format_money(amount):
-    return f"{amount / 1000000000:.2f} tỷ VNĐ"
-
 # 3. AI helper functions
 
-def ask_ai(prompt, retries=3):
+def ask_ai(prompt, schema, retries=3):
     for attempt in range(retries):
         try:
             response = client.models.generate_content(
                 model="gemini-3.6-flash",
-                contents=prompt
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=schema,
+                    temperature=0.3
+                )
             )
 
             text = response.text
@@ -76,21 +79,21 @@ def ask_ai(prompt, retries=3):
             print(f"AI trả về rỗng - lần {attempt + 1}")
 
         except Exception as e:
-            print(f"AI error - lần {attempt + 1}:", e)
+            print(f"AI error - lần {attempt + 1}: {e}")
 
     print("AI không phản hồi sau nhiều lần thử.")
     return None
+
 
 def get_json(text):
     if not text:
         return None
 
     text = text.strip()
-    text = re.sub(r"```json\s*", "", text)
-    text = re.sub(r"```\s*", "", text)
 
     try:
         return json.loads(text)
+
     except json.JSONDecodeError:
         match = re.search(r"\{[\s\S]*\}", text)
 
@@ -100,17 +103,16 @@ def get_json(text):
 
         try:
             return json.loads(match.group())
+
         except json.JSONDecodeError:
             print("JSON AI trả về không hợp lệ:", text)
             return None
 
+
 # 4. Create crisis
 
 def create_crisis():
-    available = [
-        c for c in crises
-        if c["id"] not in st.session_state.used_crises
-    ]
+    available = [c for c in crises if c["id"] not in st.session_state.used_crises]
 
     if not available:
         st.session_state.used_crises.clear()
@@ -121,25 +123,28 @@ def create_crisis():
 
     return crisis
 
+
 # 5. Evaluate decision
 
 def evaluate_decision(decision, reasoning):
+
     crisis = st.session_state.crisis
 
     prompt = f"""
 Bạn là chuyên gia quản lý khủng hoảng du lịch.
-Hãy đánh giá quyết định của người chơi dựa trên tình huống cụ thể dưới đây.
+
+Hãy đánh giá quyết định của người chơi dựa trên tình huống cụ thể.
 
 TÌNH HUỐNG:
 {json.dumps(crisis, ensure_ascii=False)}
 
-QUYẾT ĐỊNH CỦA NGƯỜI CHƠI:
+QUYẾT ĐỊNH:
 {decision}
 
-GIẢI THÍCH CỦA NGƯỜI CHƠI:
+GIẢI THÍCH:
 {reasoning}
 
-Hãy chấm điểm từ 0 đến 10 cho 6 tiêu chí:
+Hãy chấm điểm từ 0 đến 10 cho:
 - decision_making
 - risk_management
 - customer_service
@@ -147,59 +152,117 @@ Hãy chấm điểm từ 0 đến 10 cho 6 tiêu chí:
 - reputation_management
 - feasibility
 
-Hãy nhận xét CỤ THỂ dựa trên chính tình huống và quyết định của người chơi.
+Hãy nhận xét cụ thể dựa trên tình huống và quyết định của người chơi.
 
-Cần trả về:
+Hãy xác định:
 - strengths: điểm mạnh cụ thể
 - weaknesses: điểm hạn chế cụ thể
 - feedback: lời khuyên cụ thể
 - satisfaction_change: thay đổi mức hài lòng của khách
 - reputation_change: thay đổi danh tiếng
 
-satisfaction_change phải nằm trong khoảng -15 đến 15.
-reputation_change phải nằm trong khoảng -15 đến 15.
+satisfaction_change phải từ -15 đến 15.
+reputation_change phải từ -15 đến 15.
 
-Hãy trả lời ngắn gọn nhưng cụ thể để tránh phản hồi quá dài.
-
-CHỈ TRẢ VỀ JSON HỢP LỆ.
-KHÔNG viết markdown.
-KHÔNG viết ```json.
-KHÔNG giải thích bên ngoài JSON.
-
-JSON phải có đúng dạng:
-
-{{
-    "decision_making": 0,
-    "risk_management": 0,
-    "customer_service": 0,
-    "financial_management": 0,
-    "reputation_management": 0,
-    "feasibility": 0,
-    "strengths": "Nhận xét cụ thể",
-    "weaknesses": "Nhận xét cụ thể",
-    "feedback": "Lời khuyên cụ thể",
-    "satisfaction_change": 0,
-    "reputation_change": 0
-}}
+Hãy trả lời ngắn gọn nhưng cụ thể.
 """
+
+    evaluation_schema = {
+        "type": "object",
+        "properties": {
+            "decision_making": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10
+            },
+            "risk_management": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10
+            },
+            "customer_service": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10
+            },
+            "financial_management": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10
+            },
+            "reputation_management": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10
+            },
+            "feasibility": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10
+            },
+            "strengths": {
+                "type": "string"
+            },
+            "weaknesses": {
+                "type": "string"
+            },
+            "feedback": {
+                "type": "string"
+            },
+            "satisfaction_change": {
+                "type": "number",
+                "minimum": -15,
+                "maximum": 15
+            },
+            "reputation_change": {
+                "type": "number",
+                "minimum": -15,
+                "maximum": 15
+            }
+        },
+        "required": [
+            "decision_making",
+            "risk_management",
+            "customer_service",
+            "financial_management",
+            "reputation_management",
+            "feasibility",
+            "strengths",
+            "weaknesses",
+            "feedback",
+            "satisfaction_change",
+            "reputation_change"
+        ]
+    }
+
+    required_keys = [
+        "decision_making",
+        "risk_management",
+        "customer_service",
+        "financial_management",
+        "reputation_management",
+        "feasibility",
+        "strengths",
+        "weaknesses",
+        "feedback",
+        "satisfaction_change",
+        "reputation_change"
+    ]
 
     data = None
 
     for attempt in range(3):
-        result = ask_ai(prompt, retries=1)
-
+        result = ask_ai(prompt, evaluation_schema, retries=1)
         data = get_json(result)
 
-        if data:
+        if data and all(key in data for key in required_keys):
             break
 
-        print(
-            f"AI trả về JSON không hợp lệ. "
-            f"Đang thử lại lần {attempt + 1}/3."
-        )
+        print(f"AI trả về dữ liệu không hợp lệ. Đang thử lại {attempt + 1}/3.")
+        data = None
 
     if not data:
-        print("AI không trả về JSON hợp lệ. Đang dùng dữ liệu mặc định.")
+        print("AI không trả về kết quả hợp lệ. Đang sử dụng dữ liệu mặc định.")
 
         data = {
             "decision_making": 6,
@@ -209,8 +272,8 @@ JSON phải có đúng dạng:
             "reputation_management": 6,
             "feasibility": 6,
             "strengths": "Không thể đọc kết quả đánh giá từ AI.",
-            "weaknesses": "AI không trả về dữ liệu đúng định dạng.",
-            "feedback": "Hệ thống đã sử dụng kết quả mặc định.",
+            "weaknesses": "AI không trả về dữ liệu đầy đủ.",
+            "feedback": "Vui lòng thử lại.",
             "satisfaction_change": 0,
             "reputation_change": 0
         }
@@ -229,38 +292,26 @@ JSON phải có đúng dạng:
     data["total"] = round(total * 10, 1)
 
     try:
-        data["satisfaction_change"] = float(
-            data.get("satisfaction_change", 0)
-        )
+        data["satisfaction_change"] = float(data.get("satisfaction_change", 0))
     except:
         data["satisfaction_change"] = 0
 
     try:
-        data["reputation_change"] = float(
-            data.get("reputation_change", 0)
-        )
+        data["reputation_change"] = float(data.get("reputation_change", 0))
     except:
         data["reputation_change"] = 0
 
-    data["satisfaction_change"] = max(
-        -15, min(15, data["satisfaction_change"])
-    )
-
-    data["reputation_change"] = max(
-        -15, min(15, data["reputation_change"])
-    )
+    data["satisfaction_change"] = max(-15, min(15, data["satisfaction_change"]))
+    data["reputation_change"] = max(-15, min(15, data["reputation_change"]))
 
     return data
+
 
 # 6. Final report
 
 def generate_final_report():
-    history_text = json.dumps(
-        state["history"],
-        ensure_ascii=False,
-        indent=2
-    )
 
+    history_text = json.dumps(state["history"], ensure_ascii=False, indent=2)
     rounds_played = len(state["history"])
 
     prompt = f"""
@@ -269,18 +320,24 @@ Bạn là chuyên gia đào tạo quản lý du lịch.
 Người chơi đã hoàn thành {rounds_played} vòng mô phỏng khủng hoảng du lịch.
 
 KẾT QUẢ HIỆN TẠI:
-- Mức hài lòng khách hàng: {state["satisfaction"]}/100
-- Danh tiếng điểm đến: {state["reputation"]}/100
 
-LỊCH SỬ CÁC VÒNG ĐÃ CHƠI:
+Mức hài lòng khách hàng:
+{state["satisfaction"]}/100
+
+Danh tiếng điểm đến:
+{state["reputation"]}/100
+
+LỊCH SỬ CÁC VÒNG:
+
 {history_text}
 
-Hãy phân tích quá trình ra quyết định của người chơi dựa trên tất cả các vòng đã chơi.
+Hãy phân tích quá trình ra quyết định của người chơi dựa trên dữ liệu đã có.
 
-QUY TẮC PHÂN LOẠI:
-- Từ 70 đến 100: "Cao"
-- Từ 40 đến dưới 70: "Trung bình"
-- Dưới 40: "Thấp"
+QUY TẮC:
+
+Từ 70 đến 100: Cao
+Từ 40 đến dưới 70: Trung bình
+Dưới 40: Thấp
 
 Hãy đánh giá:
 - satisfaction_level
@@ -288,71 +345,101 @@ Hãy đánh giá:
 
 Sau đó giải thích cụ thể vì sao hai chỉ số hiện tại đạt mức đó.
 
-Phân tích phải dựa trên:
-- quyết định của người chơi
-- lý do của người chơi
+Phân tích dựa trên:
+- quyết định
+- lý do
 - điểm số
 - feedback
 - thay đổi mức hài lòng
 - thay đổi danh tiếng
 
 Hãy xác định:
-- strengths: những điểm mạnh trong tư duy quản lý
-- weaknesses: những điểm cần cải thiện
-- lessons: đúng 3 bài học quan trọng
-- management_advice: lời khuyên cụ thể để cải thiện khả năng quản lý khủng hoảng du lịch
+- strengths
+- weaknesses
+- lessons: đúng 3 bài học
+- management_advice
 
 Không chỉ nhìn vào điểm số.
+
 Hãy tìm những xu hướng lặp lại trong cách người chơi ra quyết định.
 
-Nếu người chơi mới chỉ hoàn thành 1 vòng hoặc một vài vòng,
-hãy phân tích dựa trên dữ liệu hiện có và không giả định những vòng chưa chơi.
+Nếu người chơi mới chỉ hoàn thành một vài vòng, hãy chỉ phân tích dựa trên dữ liệu hiện có.
 
 Hãy viết ngắn gọn nhưng cụ thể.
-
-CHỈ TRẢ VỀ JSON HỢP LỆ.
-
-KHÔNG viết markdown.
-KHÔNG viết ```json.
-KHÔNG giải thích bên ngoài JSON.
-
-JSON phải có đúng dạng:
-
-{{
-    "satisfaction_level": "Cao",
-    "satisfaction_analysis": "Giải thích cụ thể dựa trên các vòng đã chơi",
-    "reputation_level": "Thấp",
-    "reputation_analysis": "Giải thích cụ thể dựa trên các vòng đã chơi",
-    "strengths": "Điểm mạnh cụ thể",
-    "weaknesses": "Điểm cần cải thiện cụ thể",
-    "lessons": [
-        "Bài học 1",
-        "Bài học 2",
-        "Bài học 3"
-    ],
-    "management_advice": "Lời khuyên cụ thể"
-}}
 """
+
+    report_schema = {
+        "type": "object",
+        "properties": {
+            "satisfaction_level": {
+                "type": "string"
+            },
+            "satisfaction_analysis": {
+                "type": "string"
+            },
+            "reputation_level": {
+                "type": "string"
+            },
+            "reputation_analysis": {
+                "type": "string"
+            },
+            "strengths": {
+                "type": "string"
+            },
+            "weaknesses": {
+                "type": "string"
+            },
+            "lessons": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                }
+            },
+            "management_advice": {
+                "type": "string"
+            }
+        },
+        "required": [
+            "satisfaction_level",
+            "satisfaction_analysis",
+            "reputation_level",
+            "reputation_analysis",
+            "strengths",
+            "weaknesses",
+            "lessons",
+            "management_advice"
+        ]
+    }
+
+    required_keys = [
+        "satisfaction_level",
+        "satisfaction_analysis",
+        "reputation_level",
+        "reputation_analysis",
+        "strengths",
+        "weaknesses",
+        "lessons",
+        "management_advice"
+    ]
 
     data = None
 
     for attempt in range(3):
-        result = ask_ai(prompt, retries=1)
+        result = ask_ai(prompt, report_schema, retries=1)
 
         print("FINAL REPORT RESPONSE:")
         print(result)
 
         data = get_json(result)
 
-        if data:
+        if data and all(key in data for key in required_keys):
             break
 
-        print(
-            f"Báo cáo cuối không hợp lệ. "
-            f"Đang thử lại lần {attempt + 1}/3."
-        )
+        print(f"Báo cáo cuối không hợp lệ. Đang thử lại {attempt + 1}/3.")
+        data = None
 
     if not data:
+
         print("AI không trả về báo cáo cuối hợp lệ.")
 
         if state["satisfaction"] >= 70:
@@ -371,15 +458,9 @@ JSON phải có đúng dạng:
 
         return {
             "satisfaction_level": satisfaction_level,
-            "satisfaction_analysis": (
-                f"Mức hài lòng hiện tại là "
-                f"{state['satisfaction']:.0f}/100."
-            ),
+            "satisfaction_analysis": f"Mức hài lòng hiện tại là {state['satisfaction']:.0f}/100.",
             "reputation_level": reputation_level,
-            "reputation_analysis": (
-                f"Danh tiếng hiện tại là "
-                f"{state['reputation']:.0f}/100."
-            ),
+            "reputation_analysis": f"Danh tiếng hiện tại là {state['reputation']:.0f}/100.",
             "strengths": "Chưa thể tạo phân tích từ AI.",
             "weaknesses": "Chưa thể tạo phân tích từ AI.",
             "lessons": [
@@ -387,17 +468,10 @@ JSON phải có đúng dạng:
                 "Cần đánh giá rủi ro trước khi đưa ra quyết định.",
                 "Cần xem xét tác động dài hạn của mỗi quyết định."
             ],
-            "management_advice": (
-                "Hãy tiếp tục luyện tập khả năng phân tích tình huống, "
-                "quản lý rủi ro và cân đối nguồn lực."
-            )
+            "management_advice": "Hãy tiếp tục luyện tập khả năng phân tích tình huống, quản lý rủi ro và cân đối nguồn lực."
         }
 
-    if data.get("satisfaction_level") not in [
-        "Cao",
-        "Trung bình",
-        "Thấp"
-    ]:
+    if data.get("satisfaction_level") not in ["Cao", "Trung bình", "Thấp"]:
         if state["satisfaction"] >= 70:
             data["satisfaction_level"] = "Cao"
         elif state["satisfaction"] >= 40:
@@ -405,11 +479,7 @@ JSON phải có đúng dạng:
         else:
             data["satisfaction_level"] = "Thấp"
 
-    if data.get("reputation_level") not in [
-        "Cao",
-        "Trung bình",
-        "Thấp"
-    ]:
+    if data.get("reputation_level") not in ["Cao", "Trung bình", "Thấp"]:
         if state["reputation"] >= 70:
             data["reputation_level"] = "Cao"
         elif state["reputation"] >= 40:
@@ -421,20 +491,18 @@ JSON phải có đúng dạng:
         data["lessons"] = []
 
     while len(data["lessons"]) < 3:
-        data["lessons"].append(
-            "Tiếp tục luyện tập khả năng ra quyết định trong khủng hoảng."
-        )
+        data["lessons"].append("Tiếp tục luyện tập khả năng ra quyết định trong khủng hoảng.")
 
     data["lessons"] = data["lessons"][:3]
 
     return data
 
+
 def show_final_page():
+
     rounds_played = len(state["history"])
 
-    st.title(
-        f"BÁO CÁO SAU {rounds_played} VÒNG"
-    )
+    st.title(f"BÁO CÁO SAU {rounds_played} VÒNG")
 
     report = st.session_state.final_report
 
@@ -443,66 +511,38 @@ def show_final_page():
     col1, col2 = st.columns(2)
 
     with col1:
-        st.metric(
-            "Hài lòng khách hàng",
-            f"{state['satisfaction']:.0f}/100"
-        )
-
-        st.write(
-            f"**Mức độ: {report['satisfaction_level']}**"
-        )
+        st.metric("Hài lòng khách hàng", f"{state['satisfaction']:.0f}/100")
+        st.write(f"**Mức độ: {report['satisfaction_level']}**")
 
     with col2:
-        st.metric(
-            "Danh tiếng điểm đến",
-            f"{state['reputation']:.0f}/100"
-        )
-
-        st.write(
-            f"**Mức độ: {report['reputation_level']}**"
-        )
+        st.metric("Danh tiếng điểm đến", f"{state['reputation']:.0f}/100")
+        st.write(f"**Mức độ: {report['reputation_level']}**")
 
     st.subheader("PHÂN TÍCH MỨC HÀI LÒNG")
-
-    st.write(
-        report["satisfaction_analysis"]
-    )
+    st.write(report["satisfaction_analysis"])
 
     st.subheader("PHÂN TÍCH DANH TIẾNG")
-
-    st.write(
-        report["reputation_analysis"]
-    )
+    st.write(report["reputation_analysis"])
 
     st.subheader("ĐIỂM MẠNH")
-
-    st.success(
-        report["strengths"]
-    )
+    st.success(report["strengths"])
 
     st.subheader("ĐIỂM CẦN CẢI THIỆN")
-
-    st.warning(
-        report["weaknesses"]
-    )
+    st.warning(report["weaknesses"])
 
     st.subheader("3 BÀI HỌC")
 
     for i, lesson in enumerate(report["lessons"], 1):
-        st.write(
-            f"**{i}.** {lesson}"
-        )
+        st.write(f"**{i}.** {lesson}")
 
     st.subheader("LỜI KHUYÊN VỀ QUẢN LÝ DU LỊCH")
-
-    st.info(
-        report["management_advice"]
-    )
+    st.info(report["management_advice"])
 
     if rounds_played < 5:
         if st.button("QUAY LẠI CHƠI TIẾP"):
             st.session_state.page = "game"
             st.rerun()
+
 
 # 7. Game logic
 
@@ -513,52 +553,35 @@ def update_status():
         f"Danh tiếng: {state['reputation']:.0f}/100"
     )
 
+
 def show_crisis():
     st.session_state.crisis = create_crisis()
     st.session_state.answered = False
     st.session_state.result = None
     st.session_state.result_round = None
 
+
 def evaluate():
+
     if st.session_state.answered:
         return
 
     round_number = state["round"]
 
-    decision = st.session_state[
-        f"decision_{round_number}"
-    ].strip()
-
-    reasoning = st.session_state[
-        f"reasoning_{round_number}"
-    ].strip()
+    decision = st.session_state[f"decision_{round_number}"].strip()
+    reasoning = st.session_state[f"reasoning_{round_number}"].strip()
 
     if not decision or not reasoning:
         st.warning("Vui lòng nhập quyết định và lý do.")
         return
 
-    result = evaluate_decision(
-        decision,
-        reasoning
-    )
+    result = evaluate_decision(decision, reasoning)
 
-    state["satisfaction"] += (
-        result["satisfaction_change"]
-    )
+    state["satisfaction"] += result["satisfaction_change"]
+    state["reputation"] += result["reputation_change"]
 
-    state["reputation"] += (
-        result["reputation_change"]
-    )
-
-    state["satisfaction"] = max(
-        0,
-        min(100, state["satisfaction"])
-    )
-
-    state["reputation"] = max(
-        0,
-        min(100, state["reputation"])
-    )
+    state["satisfaction"] = max(0, min(100, state["satisfaction"]))
+    state["reputation"] = max(0, min(100, state["reputation"]))
 
     state["history"].append({
         "round": state["round"],
@@ -581,7 +604,9 @@ def evaluate():
     st.session_state.result_round = state["round"]
     st.session_state.answered = True
 
+
 def next_round():
+
     if state["round"] >= 5:
         return
 
@@ -592,11 +617,13 @@ def next_round():
     st.session_state.result = None
     st.session_state.result_round = None
 
+
 # 8. Page control
 
 if st.session_state.page == "final":
     show_final_page()
     st.stop()
+
 
 # 9. GUI
 
@@ -611,128 +638,55 @@ st.subheader("TÌNH HUỐNG")
 
 crisis = st.session_state.crisis
 
-st.write(
-    f"### {crisis['title']}"
-)
-
-st.write(
-    f"**Loại:** {crisis['type']}"
-)
-
-st.write(
-    f"**Mức độ:** {crisis['severity']}/10"
-)
-
-st.write(
-    f"**Số khách bị ảnh hưởng:** "
-    f"{crisis['affected_tourists']}"
-)
-
-st.write(
-    crisis["description"]
-)
+st.write(f"### {crisis['title']}")
+st.write(f"**Loại:** {crisis['type']}")
+st.write(f"**Mức độ:** {crisis['severity']}/10")
+st.write(f"**Số khách bị ảnh hưởng:** {crisis['affected_tourists']}")
+st.write(crisis["description"])
 
 st.subheader("QUYẾT ĐỊNH CỦA BẠN")
 
 round_number = state["round"]
 
-st.text_input(
-    "Quyết định của bạn",
-    key=f"decision_{round_number}"
-)
-
-st.text_area(
-    "Giải thích",
-    key=f"reasoning_{round_number}"
-)
+st.text_input("Quyết định của bạn", key=f"decision_{round_number}")
+st.text_area("Giải thích", key=f"reasoning_{round_number}")
 
 if not st.session_state.answered:
     if st.button("ĐÁNH GIÁ QUYẾT ĐỊNH"):
         evaluate()
         st.rerun()
 
-# Chỉ hiển thị kết quả nếu kết quả thuộc đúng vòng hiện tại
-
-if (
-    st.session_state.result is not None
-    and st.session_state.result_round == state["round"]
-):
+if st.session_state.result is not None and st.session_state.result_round == state["round"]:
 
     st.subheader("KẾT QUẢ")
 
     result = st.session_state.result
 
-    st.write(
-        f"### ĐIỂM TỔNG: {result['total']}/100"
-    )
-
-    st.write(
-        f"Ra quyết định: "
-        f"{result['decision_making']:.1f}/10"
-    )
-
-    st.write(
-        f"Quản lý rủi ro: "
-        f"{result['risk_management']:.1f}/10"
-    )
-
-    st.write(
-        f"Chăm sóc khách hàng: "
-        f"{result['customer_service']:.1f}/10"
-    )
-
-    st.write(
-        f"Quản lý tài chính: "
-        f"{result['financial_management']:.1f}/10"
-    )
-
-    st.write(
-        f"Quản lý danh tiếng: "
-        f"{result['reputation_management']:.1f}/10"
-    )
-
-    st.write(
-        f"Tính khả thi: "
-        f"{result['feasibility']:.1f}/10"
-    )
+    st.write(f"### ĐIỂM TỔNG: {result['total']}/100")
+    st.write(f"Ra quyết định: {result['decision_making']:.1f}/10")
+    st.write(f"Quản lý rủi ro: {result['risk_management']:.1f}/10")
+    st.write(f"Chăm sóc khách hàng: {result['customer_service']:.1f}/10")
+    st.write(f"Quản lý tài chính: {result['financial_management']:.1f}/10")
+    st.write(f"Quản lý danh tiếng: {result['reputation_management']:.1f}/10")
+    st.write(f"Tính khả thi: {result['feasibility']:.1f}/10")
 
     st.write("**Ưu điểm:**")
-
-    st.success(
-        result["strengths"]
-    )
+    st.success(result["strengths"])
 
     st.write("**Điểm hạn chế:**")
-
-    st.warning(
-        result["weaknesses"]
-    )
+    st.warning(result["weaknesses"])
 
     st.write("**Nhận xét:**")
+    st.info(result["feedback"])
 
-    st.info(
-        result["feedback"]
-    )
-
-    st.write(
-        f"**Mức hài lòng:** "
-        f"{result['satisfaction_change']:+.0f}"
-    )
-
-    st.write(
-        f"**Danh tiếng:** "
-        f"{result['reputation_change']:+.0f}"
-    )
+    st.write(f"**Mức hài lòng:** {result['satisfaction_change']:+.0f}")
+    st.write(f"**Danh tiếng:** {result['reputation_change']:+.0f}")
 
     st.divider()
 
     if st.button("XEM BÁO CÁO HIỆN TẠI"):
-        st.session_state.final_report = (
-            generate_final_report()
-        )
-
+        st.session_state.final_report = generate_final_report()
         st.session_state.page = "final"
-
         st.rerun()
 
     if state["round"] < 5:
@@ -745,21 +699,10 @@ if (
 
         st.success("HOÀN THÀNH 5 VÒNG")
 
-        st.write(
-            f"**Mức hài lòng cuối:** "
-            f"{state['satisfaction']:.0f}/100"
-        )
-
-        st.write(
-            f"**Danh tiếng cuối:** "
-            f"{state['reputation']:.0f}/100"
-        )
+        st.write(f"**Mức hài lòng cuối:** {state['satisfaction']:.0f}/100")
+        st.write(f"**Danh tiếng cuối:** {state['reputation']:.0f}/100")
 
         if st.button("XEM BÁO CÁO TỔNG KẾT"):
-            st.session_state.final_report = (
-                generate_final_report()
-            )
-
+            st.session_state.final_report = generate_final_report()
             st.session_state.page = "final"
-
             st.rerun()
